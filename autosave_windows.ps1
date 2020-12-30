@@ -1,4 +1,4 @@
-﻿function push($path, $oldsave, $isNewsave, $Location, $git_Location){
+﻿function push(){
     if($isNewsave){
         foreach ($item in 1..6){
             Start-Sleep -s 5
@@ -9,28 +9,58 @@
             }
         }
     }
+    else{
+        $newsave = (Get-ItemProperty $path).LastWriteTime
+    }
 
-    Copy-Item $path "$git_Location\$path" -Force
-    Set-Location $git_Location
+    $saveName = Join-Path $backup_Location $path
+    Copy-Item $path $saveName -Force
+    Set-Location $backup_Location
     git pull origin master
-    $date = Get-Date -Format "yyyy/MM/dd HH:mm:ss"
+    $date = $newsave.ToString("yyyy/MM/dd HH:mm:ss")
     git commit -m "$date" .
     git push origin master
     Set-Location $Location
     write-host "Finish push"
 }
 
-# 初期設定 (各自環境に併せて入力)
-$git_Location = ""      # "../simutrans_save" のようにgitフォルダパスを書く
-$span = 30  # オートセーブ間隔（分）
-# 各自の入力範囲　ここまで
+function saveCopy(){
+    if($isNewsave){
+        foreach ($item in 1..6){
+            Start-Sleep -s 5
+            $newsave = (Get-ItemProperty $path).LastWriteTime
+            write-host $oldsave $newsave
+            if($oldsave -ne $newsave){
+                break
+            }
+        }
+    }
+    else{
+        $newsave = (Get-ItemProperty $path).LastWriteTime
+    }
 
-$Location = Get-Location
+    $saveTime = $newsave.ToString("MMddHHmm")
+    $saveName = Join-Path $backup_Location "$path_basename$saveTime.sve"
+    Copy-Item $path $saveName
+    write-host "Finish copy"
+}
 
 # autosave_pakname.ps1 の形でスクリプト名を書き、そこからpaknameを切り出す
 $script_name = Split-Path -Leaf $PSCommandPath
 $pakname = $script_name.remove(0,9)
 $pakname = $pakname.remove($pakname.length -4,4) # 拡張子切り落とし
+
+$pakname_server = $pakname + "_server"
+
+
+# 初期設定 (各自環境に併せて入力)
+$mode = "push"  # セーブデータをコピーして保管する際にはpushをsaveCopyに、gitを使用したバックアップを行う際はsaveCopyをpushに書き換えること
+$backup_Location = "../KanazawaUniv_simutrans-save/10.東海マップ"      # "../simutrans_save" のようにsaveデータをコピーして保管するフォルダパスを書く
+$restart_Object = "./$pakname_server" # KU-TANS標準の起動スクリプトを使用しない際は、再起動時に実行するものに書き換えること
+$span = 30  # オートセーブ間隔（分）　デフォルトは約30分
+# 各自の入力範囲　ここまで
+
+$Location = Get-Location
 
 $ver = Import-Csv version
 $ver_server = Import-Csv version_server
@@ -58,7 +88,7 @@ else {
 }
 
 $path = "server$port-network.sve"
-$pakname_server = $pakname + "_server"
+$path_basename = $path.remove($path.length -4,4)
 $spanMeasure = $span - 2
 $spanSeconds = $span * 60
 $sleepSeconds = $spanSeconds - 118
@@ -96,7 +126,7 @@ while(1){
                     ./nettool -s $ip -p $pass -q say "Autosave has been cancelled"
                     $isNewsave = $false
                 }
-                push $path $oldsave $isNewsave $Location $git_Location
+                & $mode
     
                 $time = [datetime]::Now.Addseconds($spanSeconds).ToString("HH:mm")
                 ./nettool -s $ip -p $pass -q say "Next autosave will be in $spanSeconds seconds ( $time )"
@@ -104,7 +134,7 @@ while(1){
             }
             else{
                 $isNewsave = $false
-                push $path $oldsave $isNewsave $Location $git_Location
+                & $mode
     
                 $wait = $spanSeconds - [int]([datetime]::Now - (Get-ItemProperty $path).LastWriteTime).totalseconds
                 $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
@@ -119,12 +149,12 @@ while(1){
                 $oldsave = (Get-ItemProperty $path).LastWriteTime
                 ./nettool -s $ip -p $pass -q force-sync
                 $isNewsave = $true
-                push $path $oldsave $isNewsave $Location $git_Location
+                & $mode
                 ./nettool -s $ip -p $pass -q shutdown
                 write-host "restart"
                 $isClients = $false
                 Start-Sleep -s 5
-                Start-Process "./$pakname_server"
+                Invoke-Expression $restart_Object
             }
             Start-Sleep -s $sleepSeconds
         }
@@ -132,13 +162,12 @@ while(1){
     elseif($e_code -eq 1){
         # サーバーに到達できないときは、ゲームが落ちていると判定し、再起動処理をする
         write-host "Not started"
-        Start-Process "./$pakname_server"
+        Invoke-Expression $restart_Object
         Start-Sleep -s $sleepSeconds
     }
     else{
-        # なにかその他エラーが発生したときは5分後に再度起動
+        # なにかその他エラーが発生したときは5分後に再度実行
         write-host "miss"
         Start-Sleep -s 300
     }
 }
-

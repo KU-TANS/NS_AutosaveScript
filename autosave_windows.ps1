@@ -11,8 +11,17 @@ $mode = "push"  # セーブデータをコピーして保管する際にはpush�
 $backup_Location = "../KanazawaUniv_simutrans-save/10.東海マップ"      # "../simutrans_save" のようにsaveデータをコピーして保管するフォルダパスを書く
 $restart_Object = "./$pakname_server" # KU-TANS標準の起動スクリプトを使用しない際は、再起動時に実行するものに書き換えること
 $span = 30  # オートセーブ間隔（分）　デフォルトは約30分
+$check_State = 10  # 最新セーブおよびプレイヤーの有無の確認タイミング（分）　デフォルトでは約10分
 # 各自の入力範囲　ここまで
 
+function select_SleepTime(){
+    if($wait -le $check_StateSeconds){
+        Start-Sleep -s $wait
+    }
+    else{
+        Start-Sleep -s $check_StateSeconds
+    }
+}
 function waitSave(){
     if($isNewsave){
         foreach ($item in 1..6){
@@ -80,11 +89,16 @@ else {
     $port = $ip.remove(0,$port_colon+1)
 }
 
+if ($check_State -gt $span - 2){
+    $check_State = $span - 2
+}
+
 $path = "server$port-network.sve"
+$beforesave = (Get-ItemProperty $path).LastWriteTime
 $path_basename = $path.remove($path.length -4,4)
 $spanMeasure = $span - 2
 $spanSeconds = $span * 60
-$sleepSeconds = $spanSeconds - 118
+$check_StateSeconds = $check_State * 60
 $isClients = $false
 ./nettool -s $ip -p $pass -q say "Start"
 
@@ -120,47 +134,60 @@ while(1){
                     $isNewsave = $false
                 }
                 & $mode
-    
-                $time = [datetime]::Now.Addseconds($spanSeconds).ToString("HH:mm")
+                $beforesave = (Get-ItemProperty $path).LastWriteTime
+                write-host $beforesave 
+                
+                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
+                $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
                 ./nettool -s $ip -p $pass -q say "Next autosave will be in $spanSeconds seconds ( $time )"
-                Start-Sleep -s $sleepSeconds
+                Start-Sleep -s $check_StateSeconds
             }
-            else{
+            elseif($oldsave -ne $beforesave){
+                Write-Host $oldsave $beforesave
                 $isNewsave = $false
                 & $mode
+                $beforesave = (Get-ItemProperty $path).LastWriteTime
+                write-host $beforesave 
     
-                $wait = $spanSeconds - [int]([datetime]::Now - (Get-ItemProperty $path).LastWriteTime).totalseconds
+                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
                 $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
                 ./nettool -s $ip -p $pass -q say "Autosave in $wait seconds ( $time )"
-                $wait = $wait - 118
-                Start-Sleep -s $wait
+                $wait = $wait - 119
+                select_SleepTime
+            }
+            else{
+                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
+                $wait = $wait - 119
+                select_SleepTime
             }
         }
+        elseif($isClients){
+            # 直前まで誰かがいた場合は自動で再起動する
+            $oldsave = (Get-ItemProperty $path).LastWriteTime
+            ./nettool -s $ip -p $pass -q force-sync
+            $isNewsave = $true
+            $beforesave = & $mode
+            ./nettool -s $ip -p $pass -q shutdown
+            write-host "restart"
+            $isClients = $false
+            Start-Sleep -s 5
+            Invoke-Expression $restart_Object
+            Start-Sleep -s $check_StateSeconds
+        }
         else{
-            # 誰もいなくなったときに自動で再起動する
-            if($isClients){
-                $oldsave = (Get-ItemProperty $path).LastWriteTime
-                ./nettool -s $ip -p $pass -q force-sync
-                $isNewsave = $true
-                & $mode
-                ./nettool -s $ip -p $pass -q shutdown
-                write-host "restart"
-                $isClients = $false
-                Start-Sleep -s 5
-                Invoke-Expression $restart_Object
-            }
-            Start-Sleep -s $sleepSeconds
+            # 条件を満たさなければスリープ
+            Start-Sleep -s $check_StateSeconds
         }
     }
     elseif($e_code -eq 1){
         # サーバーに到達できないときは、ゲームが落ちていると判定し、再起動処理をする
         write-host "Not started"
         Invoke-Expression $restart_Object
-        Start-Sleep -s $sleepSeconds
+        Start-Sleep -s $check_StateSeconds
     }
     else{
-        # なにかその他エラーが発生したときは5分後に再度実行
+        # なにかその他エラーが発生したときは1分後に再度実行
         write-host "miss"
-        Start-Sleep -s 300
+        Start-Sleep -s 60
     }
 }

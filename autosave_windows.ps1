@@ -8,7 +8,7 @@ $pakname_server = $pakname + "_server"
 
 # 初期設定 (各自環境に併せて入力)
 $mode = "push"  # セーブデータをコピーして保管する際にはpushをsaveCopyに、gitを使用したバックアップを行う際はsaveCopyをpushに書き換えること
-$backup_Location = "../KanazawaUniv_simutrans-save/10.東海マップ"      # "../simutrans_save" のようにsaveデータをコピーして保管するフォルダパスを書く
+$backup_Location = ""      # "../simutrans_save" のようにsaveデータをコピーして保管するフォルダパスを書く
 $restart_Object = "./$pakname_server" # KU-TANS標準の起動スクリプトを使用しない際は、再起動時に実行するものに書き換えること
 $span = 30  # オートセーブ間隔（分）　デフォルトは約30分
 $check_State = 10  # 最新セーブおよびプレイヤーの有無の確認タイミング（分）　デフォルトでは約10分

@@ -13,8 +13,8 @@
             - 詳しくは下記のリンク先からご確認ください
 - デフォルトではKU-TANS標準起動スクリプトの使用が前提になっています(変更可)
     - Simutrans_StartupScript(自家製：https://github.com/KU-TANS/Simutrans_StartupScript)
-        - pak.pakname_server.exe(Windowsのみ)
-        - pak128japan_server.ps1(Linuxのみ)
+        - pak.pakname_server.ps1
+        - pak.pakname_server.exe ( Windows用実行ファイル )
 - PowerShellが実行できる環境が必要です
     - 実行環境がない場合は以下を参考にインストールしてください
         - Linux への PowerShell のインストール
@@ -22,6 +22,7 @@
         - PowerShellリリースページ
             - https://github.com/PowerShell/PowerShell/releases
     - `Security warning`が表示されるときはExecutionPolicyを変更してください
+- エラー処理は実装していません
 
 ## 導入方法
 1. 必要となるファイルをSimutrans本体と同じディレクトリに配置する
@@ -56,8 +57,8 @@
         - そのセーブデータから30分後、（この状況ではバックアップから20分後）にオートセーブが行われる
 - オートセーブまたは状態チェックのタイミングでプレイヤーが不在の時
     - 1つ前のオートセーブもしくはバックアップまでプレイヤーいた場合
-        - セーブののちにSimutransを再起動します
-            - Simutransの長時間起動で重くなるのを防ぐため
+        - セーブをした後にSimutransを再起動します
+            - Simutransが長時間起動で重くなるのを防ぐため
     - それ以外の場合
         - セーブしません
 ### 各種設定について(10行～14行)
@@ -70,6 +71,7 @@
         - 古いセーブデータを削除する機能はないので適宜手動で消してください
     - セーブデータをGitにpushする(push)
         - コミットメッセージがセーブ時間になります
+        - git add は行わないので、初めての時は手動でセーブデータのaddを済ませておく必要があります
 #### セーブデータバックアップ先(`$backup_Location`)
 - セーブデータをバックアップするフォルダのパスを入力
 #### Simutransを起動or再起動ファイル(`$restart_Object`)
@@ -121,3 +123,6 @@
 - 動作自体には差はありません
     - 文字コード、改行コードを書き換えれば別環境でも動きます
 ##### 各種設定のデフォルトはは弊NSの都合上です。適宜書き換えてください
+
+## ライセンス
+MITライセンス

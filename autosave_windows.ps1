@@ -11,9 +11,10 @@ $mode = "push"  # セーブデータをコピーして保管する際にはpush�
 $backup_Location = ""      # "../simutrans_save" のようにsaveデータをコピーして保管するフォルダパスを書く
 $restart_Object = "./$pakname_server" # KU-TANS標準の起動スクリプトを使用しない際は、再起動時に実行するものに書き換えること
 $span = 30  # オートセーブ間隔（分）　デフォルトは約30分
-$check_State = 10  # 最新セーブおよびプレイヤーの有無の確認タイミング（分）　デフォルトでは約10分
+$check_State = 5  # 最新セーブおよびプレイヤーの有無の確認タイミング（分）　デフォルトでは約5分
 # 各自の入力範囲　ここまで
 
+# sleep
 function select_SleepTime(){
     if($wait -le $check_StateSeconds){
         Start-Sleep -s $wait
@@ -22,8 +23,10 @@ function select_SleepTime(){
         Start-Sleep -s $check_StateSeconds
     }
 }
+
+# セーブデータが更新されるのを待つ
 function waitSave(){
-    if($isNewsave){
+    if($script:isNewsave){
         foreach ($item in 1..6){
             Start-Sleep -s 5
             $newsave = (Get-ItemProperty $path).LastWriteTime
@@ -38,6 +41,7 @@ function waitSave(){
     }
 }
 
+# セーブデータをGitにpushする
 function push(){
     $newsave = waitSave
 
@@ -52,6 +56,7 @@ function push(){
     write-host "Finish push"
 }
 
+# セーブデータをフォルダにバックアップする
 function saveCopy(){
     $newsave = waitSave
 
@@ -61,6 +66,63 @@ function saveCopy(){
     write-host "Finish copy"
 }
 
+# nettoolからの戻り値の判定
+function nettool_error(){
+    if ($LastExitCode -eq 0){
+        return $false
+    }
+    elseif($LastExitCode -eq 1){
+        # サーバーに到達できないときは、ゲームが落ちていると判定し、再起動処理をする
+        write-host "Not started"
+        Invoke-Expression $restart_Object
+        Start-Sleep -s $check_StateSeconds
+        return $true
+    }
+    else{
+        # なにかその他エラーが発生したときは1分後に再度実行
+        write-host "miss"
+        Start-Sleep -s 60
+        return $true
+    }
+}
+
+# ゲームを再起動するか判定
+function checkRestart(){
+    if($script:isClients){
+        # 直前まで誰かがいた場合は自動で再起動する
+        write-host $clients
+        ./nettool -s $ip -p $pass -q force-sync
+        $script:isNewsave = $true
+        & $mode
+        $script:beforesave = (Get-ItemProperty $path).LastWriteTime
+        ./nettool -s $ip -p $pass -q shutdown
+        write-host "restart"
+        $script:isClients = $false
+        Start-Sleep -s 5
+        Invoke-Expression $restart_Object
+        Start-Sleep -s $check_StateSeconds
+    }
+    else{
+        # 条件を満たさなければスリープ
+        write-host $clients
+        Start-Sleep -s $check_StateSeconds
+    }
+}
+
+# クライアント数の把握
+function getClient() {
+    $clients = @(./nettool -s $ip -p $pass -q clients)
+    if (nettool_error){
+        return "error"
+    }
+    
+    if ($clients.length -lt 2){
+        checkRestart
+        return "error"
+    }
+
+    return $clients
+}
 
 $Location = Get-Location
 
@@ -94,100 +156,70 @@ if ($check_State -gt $span - 2){
 }
 
 $path = "server$port-network.sve"
-$beforesave = (Get-ItemProperty $path).LastWriteTime
+$script:beforesave = (Get-ItemProperty $path).LastWriteTime
 $path_basename = $path.remove($path.length -4,4)
 $spanMeasure = $span - 2
 $spanSeconds = $span * 60
 $check_StateSeconds = $check_State * 60
-$isClients = $false
+$script:isClients = $false
 ./nettool -s $ip -p $pass -q say "Start"
 
 while(1){
     # クライアント数の把握
-    $clients = @(./nettool -s $ip -p $pass -q clients)
-    $e_code = $LastExitCode
+    $clients = getClient
+    if ($clients -eq "error"){
+        continue
+    }
     write-host $clients
-    
-    if ($e_code -eq 0){
-        if ($clients.length -ge 2){
-            $isClients = $true
+
+    $script:isClients = $true
+    $oldsave = (Get-ItemProperty $path).LastWriteTime
+    if($oldsave -le [datetime]::Now.AddMinutes( -$spanMeasure )){
+        ./nettool -s $ip -p $pass -q say "Autosave after 120 seconds"
+        Start-Sleep -s 90
+        $oldsave = (Get-ItemProperty $path).LastWriteTime
+        if($oldsave -le [datetime]::Now.AddMinutes( -$spanMeasure )){
+            ./nettool -s $ip -p $pass -q say "Autosave soon"
+            Start-Sleep -s 30
             $oldsave = (Get-ItemProperty $path).LastWriteTime
             if($oldsave -le [datetime]::Now.AddMinutes( -$spanMeasure )){
-                ./nettool -s $ip -p $pass -q say "Autosave after 120 seconds"
-                Start-Sleep -s 90
-                $oldsave = (Get-ItemProperty $path).LastWriteTime
-                if($oldsave -le [datetime]::Now.AddMinutes( -$spanMeasure )){
-                    ./nettool -s $ip -p $pass -q say "Autosave soon"
-                    Start-Sleep -s 30
-                    $oldsave = (Get-ItemProperty $path).LastWriteTime
-                    if($oldsave -le [datetime]::Now.AddMinutes( -$spanMeasure )){
-                        ./nettool -s $ip -p $pass -q force-sync
-                        $isNewsave = $true
-                    }
-                    else{
-                        ./nettool -s $ip -p $pass -q say "Autosave has been cancelled"
-                        $isNewsave = $false
-                    }
-                }
-                else{
-                    ./nettool -s $ip -p $pass -q say "Autosave has been cancelled"
-                    $isNewsave = $false
-                }
-                & $mode
-                $beforesave = (Get-ItemProperty $path).LastWriteTime
-                write-host $beforesave 
-                
-                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
-                $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
-                ./nettool -s $ip -p $pass -q say "Next autosave will be in $spanSeconds seconds ( $time )"
-                Start-Sleep -s $check_StateSeconds
-            }
-            elseif($oldsave -ne $beforesave){
-                Write-Host $oldsave $beforesave
-                $isNewsave = $false
-                & $mode
-                $beforesave = (Get-ItemProperty $path).LastWriteTime
-                write-host $beforesave 
-    
-                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
-                $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
-                ./nettool -s $ip -p $pass -q say "Autosave in $wait seconds ( $time )"
-                $wait = $wait - 119
-                select_SleepTime
+                ./nettool -s $ip -p $pass -q force-sync
+                $script:isNewsave = $true
             }
             else{
-                $wait = $spanSeconds - [int]([datetime]::Now - $beforesave).totalseconds
-                $wait = $wait - 119
-                select_SleepTime
+                ./nettool -s $ip -p $pass -q say "Autosave has been cancelled"
+                $script:isNewsave = $false
             }
         }
-        elseif($isClients){
-            # 直前まで誰かがいた場合は自動で再起動する
-            $oldsave = (Get-ItemProperty $path).LastWriteTime
-            ./nettool -s $ip -p $pass -q force-sync
-            $isNewsave = $true
-            $beforesave = & $mode
-            ./nettool -s $ip -p $pass -q shutdown
-            write-host "restart"
-            $isClients = $false
-            Start-Sleep -s 5
-            Invoke-Expression $restart_Object
-            Start-Sleep -s $check_StateSeconds
-        }
         else{
-            # 条件を満たさなければスリープ
-            Start-Sleep -s $check_StateSeconds
+            ./nettool -s $ip -p $pass -q say "Autosave has been cancelled"
+            $script:isNewsave = $false
         }
-    }
-    elseif($e_code -eq 1){
-        # サーバーに到達できないときは、ゲームが落ちていると判定し、再起動処理をする
-        write-host "Not started"
-        Invoke-Expression $restart_Object
+        & $mode
+        $script:beforesave = (Get-ItemProperty $path).LastWriteTime
+        write-host $script:beforesave 
+        
+        $wait = $spanSeconds - [int]([datetime]::Now - $script:beforesave).totalseconds
+        $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
+        ./nettool -s $ip -p $pass -q say "Next autosave will be in $spanSeconds seconds ( $time )"
         Start-Sleep -s $check_StateSeconds
     }
+    elseif($oldsave -ne $script:beforesave){
+        # Write-Host $oldsave $script:beforesave
+        $script:isNewsave = $false
+        & $mode
+        $script:beforesave = (Get-ItemProperty $path).LastWriteTime
+        write-host $script:beforesave 
+
+        $wait = $spanSeconds - [int]([datetime]::Now - $script:beforesave).totalseconds
+        $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
+        ./nettool -s $ip -p $pass -q say "Autosave in $wait seconds ( $time )"
+        $wait = $wait - 119
+        select_SleepTime
+    }
     else{
-        # なにかその他エラーが発生したときは1分後に再度実行
-        write-host "miss"
-        Start-Sleep -s 60
+        $wait = $spanSeconds - [int]([datetime]::Now - $script:beforesave).totalseconds
+        $wait = $wait - 119
+        select_SleepTime
     }
 }

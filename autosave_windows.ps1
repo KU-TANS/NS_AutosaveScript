@@ -96,6 +96,17 @@ function checkRestart(){
         & $mode
         $script:beforesave = (Get-ItemProperty $path).LastWriteTime
         ./nettool -s $ip -p $pass -q shutdown
+        
+        while ($LastExitCode -eq 2 -or $LastExitCode -eq 3) {
+            write-host "miss"
+            Start-Sleep -s 60
+            $clients = @(./nettool -s $ip -p $pass -q clients)
+            if ($clients.length -ge 2){
+                return
+            }
+            ./nettool -s $ip -p $pass -q shutdown
+        }
+
         write-host "restart"
         $script:isClients = $false
         Start-Sleep -s 5
@@ -201,6 +212,7 @@ while(1){
         
         $wait = $spanSeconds - [int]([datetime]::Now - $script:beforesave).totalseconds
         $time = [datetime]::Now.Addseconds($wait).ToString("HH:mm")
+
         ./nettool -s $ip -p $pass -q say "Next autosave will be in $spanSeconds seconds ( $time )"
         Start-Sleep -s $check_StateSeconds
     }
